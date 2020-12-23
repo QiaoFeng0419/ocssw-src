@@ -1,0 +1,6 @@
+# local-path remote-path git-rev sha1-hash
+A2016183.L3b_DAY_CHL.nc testdata/l3bin/A2016183.L3b_DAY_CHL.nc 9957b6fc4cb60e3dac79c545f59eb758d43312f4 0bb51e6fbbc6fb20ba7129dd8a956bd34ede4038
+A2016184.L3b_DAY_CHL.nc testdata/l3bin/A2016184.L3b_DAY_CHL.nc 9957b6fc4cb60e3dac79c545f59eb758d43312f4 c89dd5ca5a60a71e960b1297845f1bd4ad009294
+aqua.files testdata/l3bin/aqua.files 9957b6fc4cb60e3dac79c545f59eb758d43312f4 7fd6fb9fe4c9d3ada1f2fcc89500a59037b39109
+aqua.nc testdata/l3bin/aqua.nc a357f243005a39a53cf0864d746ff5b098cab7f1 ea5dc30a8ad8554697b5788e15ff430f5f8f9691
+aqua.nc.par testdata/l3bin/aqua.nc.par 9957b6fc4cb60e3dac79c545f59eb758d43312f4 6b58c6279e7801a96f921a7d966515dff6cde17c

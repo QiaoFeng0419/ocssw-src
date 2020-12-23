@@ -1,0 +1,13 @@
+*~
+bin
+build
+opt
+share
+var
+version.h
+nbproject
+testdata
+*.pyc
+.*project
+.settings
+.idea

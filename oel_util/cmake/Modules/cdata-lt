@@ -1,0 +1,304 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings FATAL => 'all';
+
+use Getopt::Long qw(GetOptionsFromArray :config bundling no_auto_abbrev);
+use Pod::Usage;
+
+use Term::ANSIColor qw(color);
+use File::Basename qw(basename);
+use List::Util qw(first);
+use File::Copy qw(copy);
+
+use Data::Dumper;
+$Data::Dumper::Sortkeys = 1;
+
+my %output_parsers = (
+	#nccmp => \&__parse_nccmp,
+);
+my %output_printers = (
+	nccmp => \&__print_nccmp,
+	"compare_hdf4.py" => \&__print_nccmp,
+);
+
+my @default_lastlogs = (
+	"LastTest.log.tmp",
+	"LastTest.log",
+	"Testing/Temporary/LastTest.log.tmp",
+	"Testing/Temporary/LastTest.log",
+	$ENV{OCSSWROOT} ? (
+		"$ENV{OCSSWROOT}/build/Testing/Temporary/LastTest.log.tmp",
+		"$ENV{OCSSWROOT}/build/Testing/Temporary/LastTest.log"
+	) : (),
+);
+my $ocssw_testdata = "$ENV{OCSSWROOT}/testdata";
+my $cdata = "$ENV{OCSSWROOT}/oel_util/cmake/Modules/cdata";
+my $cdata_loaded = 0;
+eval {
+	require $cdata;
+	$cdata_loaded = 1;
+};
+if ($@){
+	print "Failed to require cdata\n";
+}
+
+sub cdata_lt {
+	my @args = @_;
+
+	my %options = (
+		'max-output' => 40,
+	);
+
+	GetOptionsFromArray(\@args, \%options, 'help|h|?', 'man', 'debug|d', 
+		'raw', 'max-output|n=i',
+	) or pod2usage(2);
+	pod2usage(exitstatus => 0, verbose => 0) if ($options{'help'});
+	pod2usage(exitstatus => 0, verbose => 2) if ($options{'man'});
+
+	if (!@args){
+		@args = first {-f $_} @default_lastlogs;
+	}
+	for my $file (@args){
+		next unless (defined($file));
+		open(my $fh, '<', $file) || die("Couldn't open $file: $!");
+		my @lines = <$fh>;
+		chomp(@lines);
+		close($fh);
+		
+		my $test_start = shift(@lines);
+		my $test_end = pop(@lines);
+		
+		shift(@lines); # remove first ------
+		
+		print "$test_start\n$test_end\n";
+
+		my $test_number = 0;
+		while (@lines > 2){
+			$test_number++;
+			my $test_info = _read_section(\@lines);
+			my $test_output = _read_section(\@lines);
+			my $test_results = _read_section(\@lines);
+
+			$test_info = _parse_info($test_info, $test_output, $test_results);
+			$test_results = _parse_results($test_info, $test_output, $test_results);
+			$test_output = _parse_output($test_info, $test_output, $test_results);
+
+			_print_test(\%options, $test_info, $test_output, $test_results);
+		}
+	}
+
+	return;
+}
+
+sub _print_test {
+	my ($options, $info, $output, $results) = @_;
+	my $should_print = 0;
+	if ($results->{PassFail} eq 'Failed'){
+		$should_print = 1;
+	}
+	if ($should_print){
+		print "\n\n\n";
+		print("-"x80, "\n");
+		printf("Test %d/%d %s: %s\n", $info->{TestNumber}, $info->{Total}, $results->{PassFail}, $info->{Name});
+		printf("%s\n", join(' ', $info->{Command}, @{$info->{CommandArgs}}));
+		print "\n";
+		#print Dumper($info, $output, $results);
+		if ($options->{raw} || !$output_printers{$info->{Command}}){
+			_default_print($options, $info, $output, $results);
+		} else {
+			$output_printers{$info->{Command}}->($options, $info, $output, $results);
+		}
+	}
+}
+
+sub _default_print {
+	my ($options, $info, $output, $results) = @_;
+	my $lines = $output->{Raw};
+
+	if (@$lines <= ($options->{'max-output'})){
+		print join("\n", @$lines, '');
+	} else {
+		print join("\n", (map {$lines->[$_]} (0 .. $options->{'max-output'} - 1)), sprintf("... and %d more", @$lines - $options->{'max-output'}), '');
+	}
+}
+
+sub _parse_results {
+	my ($info, $output, $results) = @_;
+
+	while (defined($results->[0]) && !length($results->[0])){
+		shift(@$results);
+	}
+	while (defined($results->[-1]) && !length($results->[-1])){
+		pop(@$results);
+	}
+
+	(my $pass_fail = shift(@$results)) =~ s/Test |\.$//g; # <end of output>
+	(my $end_time = shift(@$results)) =~ s/^.*?: //g; # <end of output>
+	(my $time_elapsed = shift(@$results)) =~ s/^.*?: //g; # <end of output>
+
+	my %return = (
+		PassFail => $pass_fail,
+		End => $end_time,
+		Elapsed => $time_elapsed,
+	);
+
+	return \%return;
+}
+
+sub _parse_output {
+	my ($info, $output, $results) = @_;
+
+	while (defined($output->[0]) && !length($output->[0])){
+		shift(@$output);
+	}
+	while (defined($output->[-1]) && !length($output->[-1])){
+		pop(@$output);
+	}
+
+	(my $time_elapsed = pop(@$output)) =~ s/Test time =\s*//g; # <end of output>
+	pop(@$output); # <end of output>
+
+	my %return = (
+		Raw => $output,
+		Elapsed => $time_elapsed,
+	);
+
+	if (@$output){
+		if ($output_parsers{$info->{Command}}){
+			$output_parsers{$info->{Command}}->($info, $output, $results, \%return);
+		}
+	}
+
+	return \%return;
+}
+
+#my $action_string = join('', color('bold'),
+#sprintf('Choose action to perform (%su%spdate/%sI%sgnore/%sp%srint all output)', map {color('underline'), color('reset bold')} (1 .. 3)),
+#color('reset'),
+#);
+my $action_string = join('', color('bold'),
+	sprintf('Update, ignore, or print all output (u/I/p)'),
+	color('reset'),
+);
+sub _do_cdata {
+	my ($options, $info, $output, $results, $cwd, $old_file, $new_file) = @_;
+	return unless ($cdata_loaded);
+
+	if ($options->{debug} || 1){
+		print "----- Update steps -----\n";
+		print "cd $cwd\n";
+		#print "cp $cwd/$new_file $cwd/$old_file\n";
+		print "cp $new_file $old_file\n";
+		print "$cdata $cwd/$old_file\n";
+	}
+	my $input = _ask_for_input($action_string, 'i', 'uip');
+	if ($input eq 'p'){
+		print join("\n", @{$output->{Raw}}, '');
+		return _do_cdata(@_);
+	} elsif ($input eq 'u'){
+		chdir($cwd);
+		copy($new_file, $old_file) || die("Couldn't copy: $!");
+		print "Running cdata...\n";
+		cdata('add', $old_file);# || die("Failed to run cdata");
+	}
+}
+sub __print_nccmp {
+	my ($options, $info, $output, $results) = @_;
+	_default_print(@_);
+	#print Dumper($info);
+	my $old_file = $info->{CommandArgs}[-2];
+	my $new_file = $info->{CommandArgs}[-1];
+	my $cwd = $info->{Directory};
+	_do_cdata($options, $info, $output, $results, $cwd, $old_file, $new_file);
+}
+
+sub _ask_for_input {
+	my ($text, $default, $allowed) = @_;
+	print "$text: ";
+	my $input = <STDIN>;
+	chomp($input);
+	$input = lc($input || $default // '');
+	if (length($input) > 1 || ($allowed && $allowed !~ /$input/)){
+		print join('', color('bold'), "Invalid response\n", color('reset'));
+		return _ask_for_input(@_);
+	} else {
+		return $input;
+	}
+}
+
+sub __parse_nccmp_unused {
+	my ($info, $output, $results, $return) = @_;
+	my %differences;
+	for my $line (@$output){
+		$line =~ s/DIFFER : //;
+		if ($line =~ s/^NUMBER OF DIMENSIONS IN FILES : //g){
+		} elsif ($line =~ s/^DIMENSION NAMES FOR VARIABLE (.*?) : //g){
+		} elsif ($line =~ s/^DIMENSION : //g){
+		} elsif ($line =~ s/^VARIABLE (.*?) IS MISSING ATTRIBUTE WITH NAME (.*?) IN FILE (.*?)$//g){
+		} elsif ($line =~ s/^LENGTHS : //g){
+		} elsif ($line =~ s/^VARIABLE : //g){
+		} elsif ($line =~ s/^NUMBER OF ATTRIBUTES : //g){
+		} elsif ($line =~ s/^LENGTHS OF GLOBAL ATTRIBUTE : //g){
+		}
+	}
+	$return->{nccmp} = \%differences;
+}
+
+sub __print_nccmp_unused {
+	my ($options, $info, $output, $results) = @_;
+	print Dumper($output->{nccmp});
+}
+
+sub _parse_info {
+	my ($info, $output, $results) = @_;
+
+	while (defined($info->[0]) && !length($info->[0])){
+		shift(@$info);
+	}
+	while (defined($info->[-1]) && !length($info->[-1])){
+		pop(@$info);
+	}
+
+	my ($num, $total, $name) = (shift(@$info) =~ m"(\d+)/(\d+) Testing: (.*)$"); # 1/120 Testing: l2gen-data
+	shift(@$info); # 1/120 Test: l2gen-data
+	pop(@$info); # Output:
+	
+	my %return = (
+		(map {$_ ? split(': ', $_, 2) : ()} @$info),
+		TestNumber => $num,
+		Total => $total,
+		Name => $name,
+	);
+	for (grep(/start time$/, keys(%return))){
+		$return{'Start'} = delete($return{$_});
+	}
+	#my $command = delete($results{Command});
+	my $command = $return{Command};
+	$command =~ s/^\s*"|"\s*$//g;
+	my ($cmd, @args) = split(/" "/, $command);
+	$return{CommandRaw} = $return{Command};
+	$return{CommandAbs} = $cmd;
+	$return{Command} = basename($cmd);
+	$return{CommandArgs} = \@args;
+
+	return \%return;
+}
+
+sub _read_section {
+	my ($lines) = @_;
+	my @return;
+	while (defined(my $line = shift(@$lines))){
+		if ($line =~ /^-{50,}$/){
+			last;
+		} else {
+			push(@return, $line);
+		}
+	}
+	return \@return;
+}
+
+unless (caller){
+	exit(cdata_lt(@ARGV) || 0);
+}
+

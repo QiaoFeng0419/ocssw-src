@@ -1,0 +1,4 @@
+# local-path remote-path git-rev sha1-hash
+datfile.dat testdata/oc/datfile.dat 48c1483d1f42bd900a0492c76a271d3bac586942 cc97b2e2273b7464fc182f3fe8ea4a8db5927335
+kv_store/test1.par testdata/oc/kv_store/test1.par 48c1483d1f42bd900a0492c76a271d3bac586942 914c5bc969e0d0616cacc190efe49edb2ba03e53
+kv_store/test2.par testdata/oc/kv_store/test2.par 48c1483d1f42bd900a0492c76a271d3bac586942 7fc2e7f91a10be299f231a22446d5573b5aa4e6e

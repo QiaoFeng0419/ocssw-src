@@ -1,0 +1,12 @@
+#ifndef OC_CONFIGURE
+#define OC_CONFIGURE
+
+#cmakedefine HDF5_FOUND 1
+#cmakedefine HDF4_FOUND 1
+#cmakedefine NETCDF_FOUND 1
+#cmakedefine INTL_FOUND 1
+
+#define OC_MODULE_DIRECTORY "${OC_MODULE_DIRECTORY}"
+
+#endif // OC_CONFIGURE
+
